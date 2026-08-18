@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
-import { Timer, ArrowRight, Lock, Mail, User as UserIcon } from 'lucide-react';
+import { Timer, ArrowRight, Lock, Mail, User as UserIcon, AlertCircle, CheckCircle2 } from 'lucide-react';
 
 export default function AuthView() {
   const { login, register } = useAuth();
@@ -13,24 +13,76 @@ export default function AuthView() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
+  const [fieldErrors, setFieldErrors] = useState<{
+    name?: string;
+    email?: string;
+    password?: string;
+  }>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const validateForm = () => {
+    const errors: { name?: string; email?: string; password?: string } = {};
+
+    if (isRegister && !name.trim()) {
+      errors.name = 'Por favor, informe seu nome.';
+    }
+
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail) {
+      errors.email = 'O campo de e-mail é obrigatório.';
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      errors.email = 'Digite um e-mail válido (ex: seu.nome@email.com).';
+    }
+
+    if (!password) {
+      errors.password = 'A senha é obrigatória.';
+    } else if (password.length < 6) {
+      errors.password = 'A senha deve ter pelo menos 6 caracteres.';
+    }
+
+    setFieldErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
+
+    if (!validateForm()) {
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
       if (isRegister) {
-        await register(name, email, password, lastName);
+        await register(name.trim(), email.trim(), password, lastName.trim());
       } else {
-        await login(email, password);
+        await login(email.trim(), password);
       }
     } catch (err: any) {
-      setErrorMsg(err.message || 'Ocorreu um erro. Verifique seus dados.');
+      setErrorMsg(err.message || 'Não foi possível completar a operação. Tente novamente.');
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleInputChange = (field: 'name' | 'email' | 'password' | 'lastName', value: string) => {
+    if (errorMsg) setErrorMsg('');
+    if (fieldErrors[field as keyof typeof fieldErrors]) {
+      setFieldErrors((prev) => ({ ...prev, [field]: undefined }));
+    }
+
+    if (field === 'name') setName(value);
+    else if (field === 'lastName') setLastName(value);
+    else if (field === 'email') setEmail(value);
+    else if (field === 'password') setPassword(value);
+  };
+
+  const switchMode = (registerMode: boolean) => {
+    setIsRegister(registerMode);
+    setErrorMsg('');
+    setFieldErrors({});
   };
 
   return (
@@ -63,30 +115,54 @@ export default function AuthView() {
             </p>
           </div>
 
+          {/* General Error Banner */}
           {errorMsg && (
-            <div className="mb-4 p-3 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-700 font-medium animate-in fade-in">
-              {errorMsg}
+            <div className="mb-4 p-3.5 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-800 animate-in fade-in flex items-start gap-2.5">
+              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <p className="font-bold text-rose-900">
+                  {isRegister ? 'Falha ao criar conta' : 'Não foi possível entrar'}
+                </p>
+                <p className="leading-relaxed text-rose-700">{errorMsg}</p>
+                {!isRegister && errorMsg.includes('Nenhuma conta encontrada') && (
+                  <button
+                    type="button"
+                    onClick={() => switchMode(true)}
+                    className="mt-1 font-bold text-rose-600 hover:text-rose-700 underline text-[11px] block"
+                  >
+                    Deseja cadastrar uma nova conta com este e-mail?
+                  </button>
+                )}
+              </div>
             </div>
           )}
 
           {/* Form */}
-          <form onSubmit={handleSubmit} className="space-y-3">
+          <form onSubmit={handleSubmit} className="space-y-3.5" noValidate>
             {isRegister && (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Nome</label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Nome <span className="text-rose-500">*</span>
+                  </label>
                   <div className="relative">
-                    <UserIcon className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                    <UserIcon className={`w-4 h-4 absolute left-3 top-2.5 ${fieldErrors.name ? 'text-rose-400' : 'text-slate-400'}`} />
                     <input
                       id="register-name-input"
                       type="text"
-                      required
                       placeholder="Lucas"
                       value={name}
-                      onChange={(e) => setName(e.target.value)}
-                      className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-900 focus:outline-hidden focus:border-slate-400"
+                      onChange={(e) => handleInputChange('name', e.target.value)}
+                      className={`w-full pl-9 pr-3 py-2 bg-slate-50 border rounded-lg text-xs text-slate-900 focus:outline-hidden transition-colors ${
+                        fieldErrors.name
+                          ? 'border-rose-400 focus:border-rose-500 bg-rose-50/20'
+                          : 'border-slate-200 focus:border-slate-400'
+                      }`}
                     />
                   </div>
+                  {fieldErrors.name && (
+                    <p className="text-[11px] text-rose-600 font-medium mt-1">{fieldErrors.name}</p>
+                  )}
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">Sobrenome</label>
@@ -95,7 +171,7 @@ export default function AuthView() {
                     type="text"
                     placeholder="Mendes"
                     value={lastName}
-                    onChange={(e) => setLastName(e.target.value)}
+                    onChange={(e) => handleInputChange('lastName', e.target.value)}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-900 focus:outline-hidden focus:border-slate-400"
                   />
                 </div>
@@ -103,37 +179,53 @@ export default function AuthView() {
             )}
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">E-mail</label>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                E-mail <span className="text-rose-500">*</span>
+              </label>
               <div className="relative">
-                <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                <Mail className={`w-4 h-4 absolute left-3 top-2.5 ${fieldErrors.email ? 'text-rose-400' : 'text-slate-400'}`} />
                 <input
                   id="auth-email-input"
                   type="email"
-                  required
                   placeholder="seu.email@exemplo.com"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-900 focus:outline-hidden focus:border-slate-400"
+                  onChange={(e) => handleInputChange('email', e.target.value)}
+                  className={`w-full pl-9 pr-3 py-2 bg-slate-50 border rounded-lg text-xs text-slate-900 focus:outline-hidden transition-colors ${
+                    fieldErrors.email
+                      ? 'border-rose-400 focus:border-rose-500 bg-rose-50/20'
+                      : 'border-slate-200 focus:border-slate-400'
+                  }`}
                 />
               </div>
+              {fieldErrors.email && (
+                <p className="text-[11px] text-rose-600 font-medium mt-1">{fieldErrors.email}</p>
+              )}
             </div>
 
             <div>
               <div className="flex items-center justify-between mb-1">
-                <label className="block text-xs font-semibold text-slate-700">Senha</label>
+                <label className="block text-xs font-semibold text-slate-700">
+                  Senha <span className="text-rose-500">*</span>
+                </label>
               </div>
               <div className="relative">
-                <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                <Lock className={`w-4 h-4 absolute left-3 top-2.5 ${fieldErrors.password ? 'text-rose-400' : 'text-slate-400'}`} />
                 <input
                   id="auth-password-input"
                   type="password"
-                  required
                   placeholder="••••••••"
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-900 focus:outline-hidden focus:border-slate-400"
+                  onChange={(e) => handleInputChange('password', e.target.value)}
+                  className={`w-full pl-9 pr-3 py-2 bg-slate-50 border rounded-lg text-xs text-slate-900 focus:outline-hidden transition-colors ${
+                    fieldErrors.password
+                      ? 'border-rose-400 focus:border-rose-500 bg-rose-50/20'
+                      : 'border-slate-200 focus:border-slate-400'
+                  }`}
                 />
               </div>
+              {fieldErrors.password && (
+                <p className="text-[11px] text-rose-600 font-medium mt-1">{fieldErrors.password}</p>
+              )}
             </div>
 
             <button
@@ -155,10 +247,7 @@ export default function AuthView() {
               Já possui uma conta?{' '}
               <button
                 type="button"
-                onClick={() => {
-                  setIsRegister(false);
-                  setErrorMsg('');
-                }}
+                onClick={() => switchMode(false)}
                 className="font-bold text-rose-500 hover:underline ml-1"
               >
                 Fazer Login
@@ -169,10 +258,7 @@ export default function AuthView() {
               Não tem uma conta ainda?{' '}
               <button
                 type="button"
-                onClick={() => {
-                  setIsRegister(true);
-                  setErrorMsg('');
-                }}
+                onClick={() => switchMode(true)}
                 className="font-bold text-rose-500 hover:underline ml-1"
               >
                 Cadastre-se gratuitamente

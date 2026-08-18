@@ -11,21 +11,29 @@ export async function POST(req: NextRequest) {
 
     if (!email || !password) {
       return NextResponse.json(
-        { error: 'E-mail e senha são obrigatórios' },
+        { error: 'Por favor, informe o seu e-mail e a senha para continuar.' },
         { status: 400 }
       );
     }
 
     const normalizedEmail = email.trim().toLowerCase();
     let user: any = null;
+    let userFound = false;
 
     // 1. Check Supabase first if configured
     if (isSupabaseConfigured()) {
+      console.log(`[Auth] Attempting Supabase login for: ${normalizedEmail}`);
       const sbUser = await getSupabaseUserByEmail(normalizedEmail);
-      if (sbUser && sbUser.passwordHash) {
-        const isMatch = await bcrypt.compare(password, sbUser.passwordHash);
-        if (isMatch) {
-          user = await getSupabaseUserWithPreferences(sbUser.id);
+      if (sbUser) {
+        userFound = true;
+        if (sbUser.passwordHash) {
+          const isMatch = await bcrypt.compare(password, sbUser.passwordHash);
+          if (isMatch) {
+            user = await getSupabaseUserWithPreferences(sbUser.id);
+            console.log(`[Auth] Supabase login successful for user ID: ${sbUser.id}`);
+          } else {
+            console.warn(`[Auth] Password mismatch for Supabase user: ${normalizedEmail}`);
+          }
         }
       }
     }
@@ -34,6 +42,7 @@ export async function POST(req: NextRequest) {
     if (!user) {
       const localUser = getUserByEmail(normalizedEmail);
       if (localUser) {
+        userFound = true;
         const isMatch = await bcrypt.compare(password, localUser.passwordHash);
         if (isMatch) {
           user = localUser;
@@ -42,10 +51,23 @@ export async function POST(req: NextRequest) {
     }
 
     if (!user) {
-      return NextResponse.json(
-        { error: 'Credenciais inválidas' },
-        { status: 401 }
-      );
+      if (!userFound) {
+        return NextResponse.json(
+          {
+            error: 'Nenhuma conta encontrada com este e-mail. Verifique a digitação ou crie uma nova conta.',
+            code: 'USER_NOT_FOUND',
+          },
+          { status: 401 }
+        );
+      } else {
+        return NextResponse.json(
+          {
+            error: 'Senha incorreta. Por favor, confira sua senha e tente novamente.',
+            code: 'INVALID_PASSWORD',
+          },
+          { status: 401 }
+        );
+      }
     }
 
     const token = signToken(user);
