@@ -1,0 +1,6 @@
+{
+  "name": "Productive Flow",
+  "description": "Aplicativo web de produtividade e gerenciamento de projetos e tarefas baseado na técnica Pomodoro com banco de dados persistente, métricas e estatísticas.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
