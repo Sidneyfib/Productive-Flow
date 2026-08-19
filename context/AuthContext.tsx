@@ -65,9 +65,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         body: JSON.stringify({ email, password }),
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(data.error || 'Erro ao realizar login');
+        const error = new Error(data.error || 'Erro ao realizar login');
+        (error as any).code = data.code || (res.status === 401 ? 'INVALID_CREDENTIALS' : 'SERVER_ERROR');
+        (error as any).field = data.field;
+        (error as any).status = res.status;
+        throw error;
       }
 
       setUser(data.user);
@@ -93,9 +97,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         body: JSON.stringify({ name, email, password, lastName }),
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(data.error || 'Erro ao criar conta');
+        const error = new Error(data.error || 'Erro ao criar conta');
+        (error as any).code = data.code || (res.status === 409 ? 'EMAIL_ALREADY_EXISTS' : 'SERVER_ERROR');
+        (error as any).field = data.field;
+        (error as any).status = res.status;
+        throw error;
       }
 
       setUser(data.user);

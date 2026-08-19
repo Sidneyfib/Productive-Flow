@@ -1,82 +1,71 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createUser, getUserByEmail } from '@/lib/db';
 import { signToken, sanitizeUser } from '@/lib/auth';
-import { isSupabaseConfigured, getSupabaseUserByEmail, createSupabaseUser } from '@/lib/supabase-db';
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
+    const body = await req.json().catch(() => ({}));
     const { name, email, password, lastName } = body;
 
-    if (!name || !email || !password) {
+    if (!name || !String(name).trim()) {
       return NextResponse.json(
-        { error: 'Nome, e-mail e senha são obrigatórios' },
+        { error: 'Por favor, informe seu nome para o cadastro.', code: 'MISSING_NAME', field: 'name' },
         { status: 400 }
       );
     }
 
-    if (password.length < 6) {
+    if (!email || !String(email).trim()) {
       return NextResponse.json(
-        { error: 'A senha deve conter no mínimo 6 caracteres' },
+        { error: 'Por favor, informe seu endereço de e-mail.', code: 'MISSING_EMAIL', field: 'email' },
         { status: 400 }
       );
     }
 
-    const normalizedEmail = email.trim().toLowerCase();
-
-    // Check if user already exists
-    if (isSupabaseConfigured()) {
-      const supabaseUser = await getSupabaseUserByEmail(normalizedEmail);
-      if (supabaseUser) {
-        return NextResponse.json(
-          { error: 'Este e-mail já está cadastrado no Supabase' },
-          { status: 409 }
-        );
-      }
+    const trimmedEmail = String(email).trim().toLowerCase();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(trimmedEmail)) {
+      return NextResponse.json(
+        { error: 'Por favor, insira um e-mail válido (exemplo: seu.nome@email.com).', code: 'INVALID_EMAIL', field: 'email' },
+        { status: 400 }
+      );
     }
 
-    const existingLocalUser = getUserByEmail(normalizedEmail);
-    if (existingLocalUser) {
+    if (!password) {
       return NextResponse.json(
-        { error: 'Este e-mail já está cadastrado' },
+        { error: 'Por favor, defina uma senha de acesso.', code: 'MISSING_PASSWORD', field: 'password' },
+        { status: 400 }
+      );
+    }
+
+    if (String(password).length < 6) {
+      return NextResponse.json(
+        { error: 'A senha deve conter no mínimo 6 caracteres para garantir sua segurança.', code: 'WEAK_PASSWORD', field: 'password' },
+        { status: 400 }
+      );
+    }
+
+    const existingUser = getUserByEmail(trimmedEmail);
+    if (existingUser) {
+      return NextResponse.json(
+        { error: 'Este e-mail já está cadastrado no sistema.', code: 'EMAIL_ALREADY_EXISTS', field: 'email' },
         { status: 409 }
       );
     }
 
-    let user;
-
-    // 1. If Supabase is configured, create directly in Supabase
-    if (isSupabaseConfigured()) {
-      try {
-        const supabaseResult = await createSupabaseUser({
-          name: name.trim(),
-          lastName: lastName?.trim() || '',
-          email: normalizedEmail,
-          password,
-        });
-
-        if (supabaseResult) {
-          user = supabaseResult;
-        }
-      } catch (sbErr: any) {
-        console.error('Failed to create user in Supabase, falling back to local:', sbErr);
-      }
-    }
-
-    // 2. Fallback / Synchronize to local persistent database
-    if (!user) {
-      user = await createUser({
-        name,
-        lastName,
-        email: normalizedEmail,
-        password,
-      });
-    }
+    const user = await createUser({
+      name: String(name).trim(),
+      lastName: lastName ? String(lastName).trim() : undefined,
+      email: trimmedEmail,
+      password: String(password),
+    });
 
     const token = signToken(user);
     const safeUser = sanitizeUser(user);
 
-    const response = NextResponse.json({ user: safeUser, token }, { status: 201 });
+    const response = NextResponse.json(
+      { user: safeUser, token, message: 'Conta criada com sucesso!' },
+      { status: 201 }
+    );
     response.cookies.set('flow_token', token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
@@ -89,7 +78,7 @@ export async function POST(req: NextRequest) {
   } catch (error: any) {
     console.error('Registration error:', error);
     return NextResponse.json(
-      { error: error.message || 'Erro ao criar conta' },
+      { error: 'Não foi possível criar sua conta no momento. Tente novamente mais tarde.', code: 'SERVER_ERROR' },
       { status: 500 }
     );
   }

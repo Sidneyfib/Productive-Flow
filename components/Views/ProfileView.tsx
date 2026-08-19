@@ -10,10 +10,6 @@ import {
   LogOut,
   Sparkles,
   Save,
-  Database,
-  CheckCircle2,
-  AlertCircle,
-  RefreshCw,
 } from 'lucide-react';
 
 const AVATAR_OPTIONS = [
@@ -39,44 +35,6 @@ function ProfileContent({ user }: ProfileFormProps) {
   const [longBreakDuration, setLongBreakDuration] = useState(user.longBreakDuration || 15);
   const [autoStartBreaks, setAutoStartBreaks] = useState(user.autoStartBreaks ?? true);
   const [isSaving, setIsSaving] = useState(false);
-  const [supabaseStatus, setSupabaseStatus] = useState<{
-    configured?: boolean;
-    connected?: boolean;
-    message?: string;
-    metrics?: any;
-    error?: string;
-  } | null>(null);
-  const [checkingSupabase, setCheckingSupabase] = useState(false);
-
-  const checkSupabase = React.useCallback(async () => {
-    setCheckingSupabase(true);
-    try {
-      const res = await fetch('/api/supabase/status');
-      const data = await res.json();
-      setSupabaseStatus(data);
-    } catch {
-      setSupabaseStatus({ configured: false, message: 'Falha ao consultar status do Supabase' });
-    } finally {
-      setCheckingSupabase(false);
-    }
-  }, []);
-
-  React.useEffect(() => {
-    let isMounted = true;
-    fetch('/api/supabase/status')
-      .then((res) => res.json())
-      .then((data) => {
-        if (isMounted) setSupabaseStatus(data);
-      })
-      .catch(() => {
-        if (isMounted) {
-          setSupabaseStatus({ configured: false, message: 'Falha ao consultar status do Supabase' });
-        }
-      });
-    return () => {
-      isMounted = false;
-    };
-  }, []);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -297,64 +255,6 @@ function ProfileContent({ user }: ProfileFormProps) {
                 >
                   <span className="w-5 h-5 rounded-full bg-white shadow-xs" />
                 </button>
-              </div>
-            </div>
-
-            {/* Section 3: Supabase Integration Status */}
-            <div className="space-y-3 pt-2">
-              <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-                <div className="flex items-center gap-2">
-                  <Database className="w-4 h-4 text-rose-500" />
-                  <h3 className="font-bold text-xs uppercase tracking-wider text-slate-700">Integração Supabase (PostgreSQL)</h3>
-                </div>
-                <button
-                  type="button"
-                  onClick={checkSupabase}
-                  disabled={checkingSupabase}
-                  className="flex items-center gap-1 text-[11px] font-semibold text-slate-500 hover:text-slate-900 transition-colors"
-                >
-                  <RefreshCw className={`w-3 h-3 ${checkingSupabase ? 'animate-spin text-rose-500' : ''}`} />
-                  <span>{checkingSupabase ? 'Verificando...' : 'Verificar Status'}</span>
-                </button>
-              </div>
-
-              <div className={`p-3.5 rounded-lg border text-xs ${
-                supabaseStatus?.connected
-                  ? 'bg-emerald-50/70 border-emerald-200 text-emerald-900'
-                  : supabaseStatus?.configured
-                  ? 'bg-amber-50/70 border-amber-200 text-amber-900'
-                  : 'bg-slate-50 border-slate-200 text-slate-700'
-              }`}>
-                <div className="flex items-start gap-2.5">
-                  {supabaseStatus?.connected ? (
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600 mt-0.5 shrink-0" />
-                  ) : (
-                    <AlertCircle className={`w-4 h-4 mt-0.5 shrink-0 ${supabaseStatus?.configured ? 'text-amber-600' : 'text-slate-400'}`} />
-                  )}
-                  <div className="space-y-1 flex-1">
-                    <p className="font-bold">
-                      {supabaseStatus?.connected
-                        ? 'Supabase Conectado e Operacional'
-                        : supabaseStatus?.configured
-                        ? 'Configurado, aguardando execução das migrações'
-                        : 'Persistência Local Ativa (Supabase não configurado)'}
-                    </p>
-                    <p className="text-[11px] opacity-90 leading-relaxed">
-                      {supabaseStatus?.message || 'Verificando conexão...'}
-                    </p>
-                    {supabaseStatus?.metrics && (
-                      <div className="flex flex-wrap gap-3 pt-1.5 text-[11px] font-semibold text-emerald-800">
-                        <span>Usuários: {supabaseStatus.metrics.totalUsers}</span>
-                        <span>•</span>
-                        <span>Projetos: {supabaseStatus.metrics.totalProjects}</span>
-                        <span>•</span>
-                        <span>Tarefas: {supabaseStatus.metrics.totalTasks}</span>
-                        <span>•</span>
-                        <span>Sessões: {supabaseStatus.metrics.totalSessions}</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
               </div>
             </div>
 

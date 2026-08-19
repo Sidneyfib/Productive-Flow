@@ -1,7 +1,6 @@
 import jwt from 'jsonwebtoken';
 import { NextRequest } from 'next/server';
 import { getUserById, getUserPreferences, getUserWithPreferences } from './db';
-import { isSupabaseConfigured, getSupabaseUserWithPreferences } from './supabase-db';
 import { User, UserWithPreferences } from './types';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'productive-flow-deep-work-secret-key-2026';
@@ -29,25 +28,13 @@ export function verifyToken(token: string): JwtPayload | null {
 
 export function sanitizeUser(user: User | UserWithPreferences): Omit<UserWithPreferences, 'passwordHash'> {
   const { passwordHash, ...safeUser } = user as any;
-  let focusDuration = safeUser.focusDuration;
-  let shortBreakDuration = safeUser.shortBreakDuration;
-  let longBreakDuration = safeUser.longBreakDuration;
-  let autoStartBreaks = safeUser.autoStartBreaks;
-
-  if (focusDuration === undefined) {
-    const pref = getUserPreferences(user.id);
-    focusDuration = pref.focusDuration;
-    shortBreakDuration = pref.shortBreakDuration;
-    longBreakDuration = pref.longBreakDuration;
-    autoStartBreaks = pref.autoStartBreaks;
-  }
-
+  const pref = getUserPreferences(user.id);
   return {
     ...safeUser,
-    focusDuration: focusDuration ?? 25,
-    shortBreakDuration: shortBreakDuration ?? 5,
-    longBreakDuration: longBreakDuration ?? 15,
-    autoStartBreaks: autoStartBreaks ?? true,
+    focusDuration: pref.focusDuration,
+    shortBreakDuration: pref.shortBreakDuration,
+    longBreakDuration: pref.longBreakDuration,
+    autoStartBreaks: pref.autoStartBreaks,
   };
 }
 
@@ -72,14 +59,6 @@ export async function getAuthenticatedUser(req: NextRequest): Promise<UserWithPr
   const payload = verifyToken(token);
   if (!payload || !payload.userId) {
     return null;
-  }
-
-  // Check Supabase first if configured
-  if (isSupabaseConfigured()) {
-    const sbUser = await getSupabaseUserWithPreferences(payload.userId);
-    if (sbUser) {
-      return sbUser;
-    }
   }
 
   return getUserWithPreferences(payload.userId);

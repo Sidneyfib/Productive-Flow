@@ -2,78 +2,57 @@ import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import { getUserByEmail } from '@/lib/db';
 import { signToken, sanitizeUser } from '@/lib/auth';
-import { isSupabaseConfigured, getSupabaseUserByEmail, getSupabaseUserWithPreferences } from '@/lib/supabase-db';
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
+    const body = await req.json().catch(() => ({}));
     const { email, password } = body;
 
     if (!email || !password) {
+      const missingField = !email ? 'email' : 'password';
       return NextResponse.json(
-        { error: 'Por favor, informe o seu e-mail e a senha para continuar.' },
+        { 
+          error: 'E-mail e senha são obrigatórios para entrar.', 
+          code: 'MISSING_FIELDS',
+          field: missingField 
+        },
         { status: 400 }
       );
     }
 
-    const normalizedEmail = email.trim().toLowerCase();
-    let user: any = null;
-    let userFound = false;
-
-    // 1. Check Supabase first if configured
-    if (isSupabaseConfigured()) {
-      console.log(`[Auth] Attempting Supabase login for: ${normalizedEmail}`);
-      const sbUser = await getSupabaseUserByEmail(normalizedEmail);
-      if (sbUser) {
-        userFound = true;
-        if (sbUser.passwordHash) {
-          const isMatch = await bcrypt.compare(password, sbUser.passwordHash);
-          if (isMatch) {
-            user = await getSupabaseUserWithPreferences(sbUser.id);
-            console.log(`[Auth] Supabase login successful for user ID: ${sbUser.id}`);
-          } else {
-            console.warn(`[Auth] Password mismatch for Supabase user: ${normalizedEmail}`);
-          }
-        }
-      }
+    const trimmedEmail = String(email).trim().toLowerCase();
+    const user = getUserByEmail(trimmedEmail);
+    if (!user) {
+      return NextResponse.json(
+        { 
+          error: 'E-mail ou senha incorretos. Verifique seus dados ou crie uma conta.', 
+          code: 'INVALID_CREDENTIALS',
+          field: 'password'
+        },
+        { status: 401 }
+      );
     }
 
-    // 2. Check local database if not authenticated via Supabase
-    if (!user) {
-      const localUser = getUserByEmail(normalizedEmail);
-      if (localUser) {
-        userFound = true;
-        const isMatch = await bcrypt.compare(password, localUser.passwordHash);
-        if (isMatch) {
-          user = localUser;
-        }
-      }
-    }
-
-    if (!user) {
-      if (!userFound) {
-        return NextResponse.json(
-          {
-            error: 'Nenhuma conta encontrada com este e-mail. Verifique a digitação ou crie uma nova conta.',
-            code: 'USER_NOT_FOUND',
-          },
-          { status: 401 }
-        );
-      } else {
-        return NextResponse.json(
-          {
-            error: 'Senha incorreta. Por favor, confira sua senha e tente novamente.',
-            code: 'INVALID_PASSWORD',
-          },
-          { status: 401 }
-        );
-      }
+    const isMatch = await bcrypt.compare(String(password), user.passwordHash);
+    if (!isMatch) {
+      return NextResponse.json(
+        { 
+          error: 'E-mail ou senha incorretos. Verifique suas credenciais.', 
+          code: 'INVALID_CREDENTIALS',
+          field: 'password'
+        },
+        { status: 401 }
+      );
     }
 
     const token = signToken(user);
     const safeUser = sanitizeUser(user);
 
-    const response = NextResponse.json({ user: safeUser, token }, { status: 200 });
+    const response = NextResponse.json(
+      { user: safeUser, token, message: 'Login realizado com sucesso!' },
+      { status: 200 }
+    );
+
     response.cookies.set('flow_token', token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
@@ -86,7 +65,10 @@ export async function POST(req: NextRequest) {
   } catch (error: any) {
     console.error('Login error:', error);
     return NextResponse.json(
-      { error: error.message || 'Erro ao realizar login' },
+      { 
+        error: 'Ocorreu uma falha no servidor ao tentar realizar o login. Tente novamente mais tarde.', 
+        code: 'SERVER_ERROR' 
+      },
       { status: 500 }
     );
   }

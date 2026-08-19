@@ -187,7 +187,7 @@ $$ LANGUAGE sql STABLE SECURITY DEFINER;
 
 -- Policies
 DROP POLICY IF EXISTS "Users can read own profile" ON public.users;
-CREATE POLICY "Users can read own profile" ON public.users FOR SELECT USING (true);
+CREATE POLICY "Users can read own profile" ON public.users FOR SELECT USING (auth_id = auth.uid() OR id = auth.uid() OR auth.role() = 'service_role');
 
 DROP POLICY IF EXISTS "Users can update own profile" ON public.users;
 CREATE POLICY "Users can update own profile" ON public.users FOR UPDATE USING (auth_id = auth.uid() OR id = auth.uid() OR auth.role() = 'service_role');
@@ -196,7 +196,7 @@ DROP POLICY IF EXISTS "Allow user registration" ON public.users;
 CREATE POLICY "Allow user registration" ON public.users FOR INSERT WITH CHECK (true);
 
 DROP POLICY IF EXISTS "Users can manage own preferences" ON public.user_preferences;
-CREATE POLICY "Users can manage own preferences" ON public.user_preferences FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Users can manage own preferences" ON public.user_preferences FOR ALL USING (user_id = public.current_profile_id() OR user_id = auth.uid() OR auth.role() = 'service_role') WITH CHECK (user_id = public.current_profile_id() OR user_id = auth.uid() OR auth.role() = 'service_role');
 
 DROP POLICY IF EXISTS "Users can manage own projects" ON public.projects;
 CREATE POLICY "Users can manage own projects" ON public.projects FOR ALL USING (user_id = public.current_profile_id() OR user_id = auth.uid() OR auth.role() = 'service_role') WITH CHECK (user_id = public.current_profile_id() OR user_id = auth.uid() OR auth.role() = 'service_role');
