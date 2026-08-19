@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/auth';
+import { isSupabaseConfigured } from '@/lib/supabase';
 import { getTasksByUserId, createTask } from '@/lib/db';
+import { getSupabaseTasks, createSupabaseTask } from '@/lib/supabase-db';
 
 export async function GET(req: NextRequest) {
   try {
@@ -14,7 +16,18 @@ export async function GET(req: NextRequest) {
     const status = searchParams.get('status');
     const priority = searchParams.get('priority');
 
-    let tasks = getTasksByUserId(user.id);
+    let tasks: any[] = [];
+
+    if (isSupabaseConfigured()) {
+      try {
+        tasks = await getSupabaseTasks(user.id);
+      } catch (err) {
+        console.warn('Supabase tasks fetch failed, fallback to local db:', err);
+        tasks = getTasksByUserId(user.id);
+      }
+    } else {
+      tasks = getTasksByUserId(user.id);
+    }
 
     if (projectId) {
       tasks = tasks.filter((t) => t.projectId === projectId);
@@ -44,6 +57,25 @@ export async function POST(req: NextRequest) {
 
     if (!title || !title.trim()) {
       return NextResponse.json({ error: 'Título da tarefa é obrigatório' }, { status: 400 });
+    }
+
+    if (isSupabaseConfigured()) {
+      try {
+        const task = await createSupabaseTask(user.id, {
+          title,
+          description,
+          projectId,
+          priority,
+          status,
+          estimatedPomodoros,
+          dueDate,
+        });
+        if (task) {
+          return NextResponse.json({ task }, { status: 201 });
+        }
+      } catch (err) {
+        console.warn('Supabase create task failed, fallback to local db:', err);
+      }
     }
 
     const task = await createTask(user.id, {

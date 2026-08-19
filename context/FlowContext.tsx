@@ -125,19 +125,28 @@ export function FlowProvider({ children }: { children: React.ReactNode }) {
     }
 
     try {
-      const res = await fetch('/api/sync');
+      const storedToken = typeof window !== 'undefined' ? localStorage.getItem('flow_token') : null;
+      const headers: Record<string, string> = {};
+      if (storedToken) {
+        headers['Authorization'] = `Bearer ${storedToken}`;
+      }
+
+      const res = await fetch('/api/sync', { credentials: 'include', headers });
       if (res.ok) {
-        const data = await res.json();
-        setProjects(data.projects || []);
-        setTasks(data.tasks || []);
-        setSessions(data.sessions || []);
-        setStats(data.stats || null);
-        if (data.timer) {
-          setActiveTimer(data.timer);
+        const contentType = res.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+          const data = await res.json();
+          setProjects(data.projects || []);
+          setTasks(data.tasks || []);
+          setSessions(data.sessions || []);
+          setStats(data.stats || null);
+          if (data.timer) {
+            setActiveTimer(data.timer);
+          }
         }
       }
     } catch (err) {
-      console.error('Error fetching data bundle:', err);
+      console.warn('Silent data sync skipped:', err);
     } finally {
       setIsLoadingData(false);
     }
@@ -167,37 +176,22 @@ export function FlowProvider({ children }: { children: React.ReactNode }) {
 
   // Initial user sync
   useEffect(() => {
-    let isSubscribed = true;
-    async function loadInitialData() {
+    let active = true;
+
+    async function sync() {
       if (!user) {
-        if (isSubscribed) setIsLoadingData(false);
+        if (active) setIsLoadingData(false);
         return;
       }
-      try {
-        const res = await fetch('/api/sync');
-        if (res.ok && isSubscribed) {
-          const data = await res.json();
-          setProjects(data.projects || []);
-          setTasks(data.tasks || []);
-          setSessions(data.sessions || []);
-          setStats(data.stats || null);
-          if (data.timer) {
-            setActiveTimer(data.timer);
-          }
-        }
-      } catch (err) {
-        console.error('Error fetching sync bundle:', err);
-      } finally {
-        if (isSubscribed) setIsLoadingData(false);
-      }
+      await refreshData();
     }
 
-    loadInitialData();
+    sync();
 
     return () => {
-      isSubscribed = false;
+      active = false;
     };
-  }, [user]);
+  }, [user, refreshData]);
 
   // Sync Timer state to backend with debounce
   const syncTimerToBackend = useCallback((timerState: ActiveTimerState) => {

@@ -1,12 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/auth';
+import { isSupabaseConfigured } from '@/lib/supabase';
 import { getActiveTimer, updateActiveTimer } from '@/lib/db';
+import { getSupabaseActiveTimer, updateSupabaseActiveTimer } from '@/lib/supabase-db';
 
 export async function GET(req: NextRequest) {
   try {
     const user = await getAuthenticatedUser(req);
     if (!user) {
       return NextResponse.json({ error: 'Não autenticado' }, { status: 401 });
+    }
+
+    if (isSupabaseConfigured()) {
+      try {
+        const timer = await getSupabaseActiveTimer(user.id);
+        if (timer) {
+          return NextResponse.json({ timer });
+        }
+      } catch (err) {
+        console.warn('Supabase timer fetch failed, fallback to local db:', err);
+      }
     }
 
     const timer = getActiveTimer(user.id);
@@ -33,6 +46,26 @@ export async function POST(req: NextRequest) {
     if (isRunning && remainingSeconds > 0) {
       startedAtTimestamp = now;
       targetEndTimestamp = now + remainingSeconds * 1000;
+    }
+
+    if (isSupabaseConfigured()) {
+      try {
+        const updated = await updateSupabaseActiveTimer(user.id, {
+          taskId: taskId !== undefined ? taskId : undefined,
+          projectId: projectId !== undefined ? projectId : undefined,
+          type: type || undefined,
+          totalSeconds: typeof totalSeconds === 'number' ? totalSeconds : undefined,
+          remainingSeconds: typeof remainingSeconds === 'number' ? remainingSeconds : undefined,
+          isRunning: Boolean(isRunning),
+          startedAtTimestamp,
+          targetEndTimestamp,
+        });
+        if (updated) {
+          return NextResponse.json({ timer: updated });
+        }
+      } catch (err) {
+        console.warn('Supabase update timer failed, fallback to local db:', err);
+      }
     }
 
     const updated = await updateActiveTimer(user.id, {

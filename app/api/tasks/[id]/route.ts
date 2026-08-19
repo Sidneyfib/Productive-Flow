@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/auth';
+import { isSupabaseConfigured } from '@/lib/supabase';
 import { getTaskById, updateTask, deleteTask } from '@/lib/db';
+import { updateSupabaseTask, deleteSupabaseTask } from '@/lib/supabase-db';
 
 export async function GET(
   req: NextRequest,
@@ -36,6 +38,18 @@ export async function PUT(
 
     const { id } = await context.params;
     const body = await req.json();
+
+    if (isSupabaseConfigured()) {
+      try {
+        const updated = await updateSupabaseTask(user.id, id, body);
+        if (updated) {
+          return NextResponse.json({ task: updated });
+        }
+      } catch (err) {
+        console.warn('Supabase update task failed, fallback to local db:', err);
+      }
+    }
+
     const updated = await updateTask(user.id, id, body);
     return NextResponse.json({ task: updated });
   } catch (error: any) {
@@ -55,6 +69,18 @@ export async function PATCH(
 
     const { id } = await context.params;
     const body = await req.json();
+
+    if (isSupabaseConfigured()) {
+      try {
+        const updated = await updateSupabaseTask(user.id, id, body);
+        if (updated) {
+          return NextResponse.json({ task: updated });
+        }
+      } catch (err) {
+        console.warn('Supabase patch task failed, fallback to local db:', err);
+      }
+    }
+
     const updated = await updateTask(user.id, id, body);
     return NextResponse.json({ task: updated });
   } catch (error: any) {
@@ -73,6 +99,16 @@ export async function DELETE(
     }
 
     const { id } = await context.params;
+
+    if (isSupabaseConfigured()) {
+      try {
+        await deleteSupabaseTask(user.id, id);
+        return NextResponse.json({ message: 'Tarefa excluída com sucesso' });
+      } catch (err) {
+        console.warn('Supabase delete task failed, fallback to local db:', err);
+      }
+    }
+
     await deleteTask(user.id, id);
     return NextResponse.json({ message: 'Tarefa excluída com sucesso' });
   } catch (error: any) {

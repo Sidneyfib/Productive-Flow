@@ -8,6 +8,7 @@ import {
   Task,
   PomodoroSession,
   ActiveTimerState,
+  ProductivityStats,
 } from './types';
 
 export { isSupabaseConfigured };
@@ -758,5 +759,148 @@ export async function updateSupabaseActiveTimer(
     startedAtTimestamp: data.started_at_timestamp ? Number(data.started_at_timestamp) : null,
     targetEndTimestamp: data.target_end_timestamp ? Number(data.target_end_timestamp) : null,
     updatedAt: data.updated_at,
+  };
+}
+
+// ----------------- STATS -----------------
+
+export async function calculateSupabaseUserStats(userId: string): Promise<ProductivityStats> {
+  const [sessions, tasks, projects] = await Promise.all([
+    getSupabaseSessions(userId, 500),
+    getSupabaseTasks(userId),
+    getSupabaseProjects(userId),
+  ]);
+
+  const focusSessions = sessions.filter((s) => s.type === 'focus' && s.completed);
+  const totalPomodorosCompleted = focusSessions.length;
+  const totalFocusTimeMinutes = focusSessions.reduce((acc, s) => acc + (s.durationMinutes || 25), 0);
+  const deepWorkHours = Number((totalFocusTimeMinutes / 60).toFixed(1));
+
+  // Today
+  const todayDateStr = new Date().toISOString().split('T')[0];
+  const todaySessions = focusSessions.filter((s) => s.createdAt.startsWith(todayDateStr));
+  const todayFocusTimeMinutes = todaySessions.reduce((acc, s) => acc + (s.durationMinutes || 25), 0);
+
+  const completedTasks = tasks.filter((t) => t.status === 'completed');
+  const todayCompletedTasks = completedTasks.filter(
+    (t) => t.completedAt && t.completedAt.startsWith(todayDateStr)
+  ).length;
+
+  const totalTasks = tasks.length;
+  const completionRate = totalTasks > 0 ? Math.round((completedTasks.length / totalTasks) * 100) : 0;
+
+  // Daily average (last 7 days)
+  const dayMs = 24 * 3600000;
+  const sevenDaysAgo = new Date(Date.now() - 7 * dayMs).toISOString();
+  const recentSessions = focusSessions.filter((s) => s.createdAt >= sevenDaysAgo);
+  const dailyAveragePomodoros = Number((recentSessions.length / 7).toFixed(1));
+
+  // Streak days
+  const sessionDates = new Set<string>();
+  focusSessions.forEach((s) => {
+    sessionDates.add(s.createdAt.split('T')[0]);
+  });
+
+  let streakDays = 0;
+  let checkDate = new Date();
+  let hasSessionToday = sessionDates.has(todayDateStr);
+
+  if (!hasSessionToday) {
+    const yesterday = new Date(Date.now() - dayMs).toISOString().split('T')[0];
+    if (sessionDates.has(yesterday)) {
+      checkDate = new Date(Date.now() - dayMs);
+      hasSessionToday = true;
+    }
+  }
+
+  if (hasSessionToday) {
+    while (true) {
+      const dateKey = checkDate.toISOString().split('T')[0];
+      if (sessionDates.has(dateKey)) {
+        streakDays++;
+        checkDate = new Date(checkDate.getTime() - dayMs);
+      } else {
+        break;
+      }
+    }
+  }
+  if (streakDays === 0 && totalPomodorosCompleted > 0) {
+    streakDays = 1;
+  }
+
+  // Weekly Progress
+  const dayNames = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+  const dayKeys = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S'];
+  const now = new Date();
+  const currentDayOfWeek = now.getDay();
+
+  const mondayOffset = (currentDayOfWeek + 6) % 7;
+  const monday = new Date(now.getTime() - mondayOffset * dayMs);
+  monday.setHours(0, 0, 0, 0);
+
+  const weeklyProgress = [];
+  for (let i = 0; i < 7; i++) {
+    const dayDate = new Date(monday.getTime() + i * dayMs);
+    const dayDateStr = dayDate.toISOString().split('T')[0];
+    const daySessions = focusSessions.filter((s) => s.createdAt.startsWith(dayDateStr));
+    const dayPomodoros = daySessions.length;
+    const dayMins = daySessions.reduce((acc, s) => acc + (s.durationMinutes || 25), 0);
+    const dayIndex = dayDate.getDay();
+
+    weeklyProgress.push({
+      dayKey: dayKeys[dayIndex],
+      dayName: dayNames[dayIndex],
+      pomodoros: dayPomodoros,
+      minutes: dayMins,
+      isToday: dayDateStr === todayDateStr,
+    });
+  }
+
+  // Project Distribution
+  const projectMinsMap: Record<string, number> = {};
+  focusSessions.forEach((s) => {
+    const pId = s.projectId || 'unassigned';
+    projectMinsMap[pId] = (projectMinsMap[pId] || 0) + (s.durationMinutes || 25);
+  });
+
+  const projectDistribution = projects.map((p) => {
+    const mins = projectMinsMap[p.id] || 0;
+    const hours = Number((mins / 60).toFixed(1));
+    const percentage = totalFocusTimeMinutes > 0 ? Math.round((mins / totalFocusTimeMinutes) * 100) : 0;
+    return {
+      projectId: p.id,
+      projectName: p.name,
+      color: p.color || '#0f172a',
+      minutes: mins,
+      hours,
+      percentage,
+    };
+  });
+
+  if (projectMinsMap['unassigned']) {
+    const mins = projectMinsMap['unassigned'];
+    const hours = Number((mins / 60).toFixed(1));
+    const percentage = totalFocusTimeMinutes > 0 ? Math.round((mins / totalFocusTimeMinutes) * 100) : 0;
+    projectDistribution.push({
+      projectId: 'unassigned',
+      projectName: 'Tarefas Gerais',
+      color: '#64748b',
+      minutes: mins,
+      hours,
+      percentage,
+    });
+  }
+
+  return {
+    dailyAveragePomodoros,
+    deepWorkHours,
+    completionRate,
+    streakDays,
+    totalPomodorosCompleted,
+    totalFocusTimeMinutes,
+    todayFocusTimeMinutes,
+    todayCompletedTasks,
+    weeklyProgress,
+    projectDistribution,
   };
 }
