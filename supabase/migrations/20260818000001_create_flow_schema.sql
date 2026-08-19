@@ -34,12 +34,15 @@ END $$;
 
 -- 3. Automatic Updated At Trigger Function
 CREATE OR REPLACE FUNCTION update_updated_at_column()
-RETURNS TRIGGER AS $$
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SET search_path = ''
+AS $$
 BEGIN
     NEW.updated_at = NOW();
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$;
 
 -- 4. User Profiles Table (Mirrors auth.users or standalone users)
 CREATE TABLE IF NOT EXISTS public.users (

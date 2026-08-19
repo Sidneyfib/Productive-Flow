@@ -38,12 +38,15 @@ END $$;
 
 -- 3. Helper Functions
 CREATE OR REPLACE FUNCTION update_updated_at_column()
-RETURNS TRIGGER AS $$
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SET search_path = ''
+AS $$
 BEGIN
     NEW.updated_at = NOW();
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$;
 
 -- 4. Tables
 
@@ -181,31 +184,140 @@ ALTER TABLE public.pomodoro_sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.active_timers ENABLE ROW LEVEL SECURITY;
 
 CREATE OR REPLACE FUNCTION public.current_profile_id()
-RETURNS UUID AS $$
-    SELECT id FROM public.users WHERE auth_id = auth.uid() OR id = auth.uid() LIMIT 1;
-$$ LANGUAGE sql STABLE SECURITY DEFINER;
+RETURNS UUID
+LANGUAGE sql
+STABLE
+SECURITY INVOKER
+SET search_path = ''
+AS $$
+    SELECT id FROM public.users WHERE auth_id = (SELECT auth.uid()) OR id = (SELECT auth.uid()) LIMIT 1;
+$$;
 
 -- Policies
 DROP POLICY IF EXISTS "Users can read own profile" ON public.users;
-CREATE POLICY "Users can read own profile" ON public.users FOR SELECT USING (auth_id = auth.uid() OR id = auth.uid() OR auth.role() = 'service_role');
-
 DROP POLICY IF EXISTS "Users can update own profile" ON public.users;
-CREATE POLICY "Users can update own profile" ON public.users FOR UPDATE USING (auth_id = auth.uid() OR id = auth.uid() OR auth.role() = 'service_role');
-
 DROP POLICY IF EXISTS "Allow user registration" ON public.users;
-CREATE POLICY "Allow user registration" ON public.users FOR INSERT WITH CHECK (true);
+DROP POLICY IF EXISTS "Users can insert own profile" ON public.users;
+DROP POLICY IF EXISTS "Users can delete profile" ON public.users;
+DROP POLICY IF EXISTS "Users can delete own profile" ON public.users;
 
+CREATE POLICY "Users can read own profile"
+    ON public.users FOR SELECT
+    TO authenticated
+    USING (auth_id = (SELECT auth.uid()) OR id = (SELECT auth.uid()));
+
+CREATE POLICY "Users can update own profile"
+    ON public.users FOR UPDATE
+    TO authenticated
+    USING (auth_id = (SELECT auth.uid()) OR id = (SELECT auth.uid()))
+    WITH CHECK (auth_id = (SELECT auth.uid()) OR id = (SELECT auth.uid()));
+
+CREATE POLICY "Users can insert own profile"
+    ON public.users FOR INSERT
+    TO authenticated
+    WITH CHECK (auth_id = (SELECT auth.uid()) OR id = (SELECT auth.uid()));
+
+CREATE POLICY "Users can delete own profile"
+    ON public.users FOR DELETE
+    TO authenticated
+    USING (auth_id = (SELECT auth.uid()) OR id = (SELECT auth.uid()));
+
+-- User Preferences
 DROP POLICY IF EXISTS "Users can manage own preferences" ON public.user_preferences;
-CREATE POLICY "Users can manage own preferences" ON public.user_preferences FOR ALL USING (user_id = public.current_profile_id() OR user_id = auth.uid() OR auth.role() = 'service_role') WITH CHECK (user_id = public.current_profile_id() OR user_id = auth.uid() OR auth.role() = 'service_role');
+CREATE POLICY "Users can manage own preferences"
+    ON public.user_preferences FOR ALL
+    TO authenticated
+    USING (user_id = (SELECT auth.uid()) OR user_id = public.current_profile_id())
+    WITH CHECK (user_id = (SELECT auth.uid()) OR user_id = public.current_profile_id());
 
+-- Projects
 DROP POLICY IF EXISTS "Users can manage own projects" ON public.projects;
-CREATE POLICY "Users can manage own projects" ON public.projects FOR ALL USING (user_id = public.current_profile_id() OR user_id = auth.uid() OR auth.role() = 'service_role') WITH CHECK (user_id = public.current_profile_id() OR user_id = auth.uid() OR auth.role() = 'service_role');
+CREATE POLICY "Users can manage own projects"
+    ON public.projects FOR ALL
+    TO authenticated
+    USING (user_id = (SELECT auth.uid()) OR user_id = public.current_profile_id())
+    WITH CHECK (user_id = (SELECT auth.uid()) OR user_id = public.current_profile_id());
 
+-- Tasks
 DROP POLICY IF EXISTS "Users can manage own tasks" ON public.tasks;
-CREATE POLICY "Users can manage own tasks" ON public.tasks FOR ALL USING (user_id = public.current_profile_id() OR user_id = auth.uid() OR auth.role() = 'service_role') WITH CHECK (user_id = public.current_profile_id() OR user_id = auth.uid() OR auth.role() = 'service_role');
+CREATE POLICY "Users can manage own tasks"
+    ON public.tasks FOR ALL
+    TO authenticated
+    USING (user_id = (SELECT auth.uid()) OR user_id = public.current_profile_id())
+    WITH CHECK (user_id = (SELECT auth.uid()) OR user_id = public.current_profile_id());
 
+-- Pomodoro Sessions
 DROP POLICY IF EXISTS "Users can manage own sessions" ON public.pomodoro_sessions;
-CREATE POLICY "Users can manage own sessions" ON public.pomodoro_sessions FOR ALL USING (user_id = public.current_profile_id() OR user_id = auth.uid() OR auth.role() = 'service_role') WITH CHECK (user_id = public.current_profile_id() OR user_id = auth.uid() OR auth.role() = 'service_role');
+CREATE POLICY "Users can manage own sessions"
+    ON public.pomodoro_sessions FOR ALL
+    TO authenticated
+    USING (user_id = (SELECT auth.uid()) OR user_id = public.current_profile_id())
+    WITH CHECK (user_id = (SELECT auth.uid()) OR user_id = public.current_profile_id());
 
+-- Active Timers
 DROP POLICY IF EXISTS "Users can manage own active timer" ON public.active_timers;
-CREATE POLICY "Users can manage own active timer" ON public.active_timers FOR ALL USING (user_id = public.current_profile_id() OR user_id = auth.uid() OR auth.role() = 'service_role') WITH CHECK (user_id = public.current_profile_id() OR user_id = auth.uid() OR auth.role() = 'service_role');
+CREATE POLICY "Users can manage own active timer"
+    ON public.active_timers FOR ALL
+    TO authenticated
+    USING (user_id = (SELECT auth.uid()) OR user_id = public.current_profile_id())
+    WITH CHECK (user_id = (SELECT auth.uid()) OR user_id = public.current_profile_id());
+
+-- 7. Function Access & Security Hardening
+-- Revoke public execution on internal and trigger functions to prevent unauthorized RPC calls
+REVOKE EXECUTE ON FUNCTION update_updated_at_column() FROM PUBLIC, anon, authenticated;
+
+REVOKE EXECUTE ON FUNCTION public.current_profile_id() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.current_profile_id() TO authenticated, service_role;
+
+-- 8. Automatic Onboarding Trigger for Supabase Auth (auth.users)
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+    new_user_id UUID;
+    user_full_name TEXT;
+BEGIN
+    user_full_name := COALESCE(NEW.raw_user_meta_data->>'name', split_part(NEW.email, '@', 1));
+
+    -- 1. Create Public User Profile
+    INSERT INTO public.users (auth_id, email, name, last_name, avatar)
+    VALUES (
+        NEW.id,
+        NEW.email,
+        user_full_name,
+        COALESCE(NEW.raw_user_meta_data->>'lastName', ''),
+        COALESCE(NEW.raw_user_meta_data->>'avatar_url', 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80')
+    )
+    RETURNING id INTO new_user_id;
+
+    -- 2. Create Default User Preferences (3FN 1:1)
+    INSERT INTO public.user_preferences (user_id, focus_duration, short_break_duration, long_break_duration, auto_start_breaks)
+    VALUES (new_user_id, 25, 5, 15, true);
+
+    -- 3. Create Default Project
+    INSERT INTO public.projects (user_id, name, description, color, icon, status)
+    VALUES (new_user_id, 'Geral', 'Projeto padrão para organização de tarefas gerais', '#0f172a', 'folder', 'in_progress');
+
+    -- 4. Initialize Active Timer
+    INSERT INTO public.active_timers (user_id, type, total_seconds, remaining_seconds, is_running)
+    VALUES (new_user_id, 'focus', 1500, 1500, false);
+
+    RETURN NEW;
+END;
+$$;
+
+-- Revoke RPC execution from anon and authenticated on trigger function
+REVOKE EXECUTE ON FUNCTION public.handle_new_user() FROM PUBLIC, anon, authenticated;
+
+-- Attach trigger to auth.users if auth schema exists
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'auth') THEN
+        DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+        CREATE TRIGGER on_auth_user_created
+        AFTER INSERT ON auth.users
+        FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+    END IF;
+END $$;
