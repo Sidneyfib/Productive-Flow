@@ -18,10 +18,11 @@ import {
   BarChart3,
   LogOut,
   Sparkles,
+  WifiOff,
 } from 'lucide-react';
 
 export default function TopNavBar() {
-  const { currentTab, setCurrentTab, activeTimer, startTimer, pauseTimer, openNewTaskModal, openNewProjectModal } = useFlow();
+  const { currentTab, setCurrentTab, activeTimer, startTimer, pauseTimer, openNewTaskModal, openNewProjectModal, isOnline } = useFlow();
   const { user, logout } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -79,6 +80,18 @@ export default function TopNavBar() {
 
       {/* Right: Active Live Timer Widget + Actions */}
       <div className="flex items-center gap-2 md:gap-3">
+        {/* Offline Badge */}
+        {!isOnline && (
+          <div
+            id="offline-indicator-badge"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 border border-amber-200 text-amber-700 text-xs font-semibold"
+            title="Conexão perdida. Modo offline ativo."
+          >
+            <WifiOff className="w-3.5 h-3.5 animate-pulse text-amber-600" />
+            <span className="hidden sm:inline">Offline</span>
+          </div>
+        )}
+
         {/* Floating Active Timer Chip */}
         <div
           onClick={() => setCurrentTab('timer')}

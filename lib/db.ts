@@ -11,6 +11,19 @@ import {
   ActiveTimerState,
   ProductivityStats,
 } from './types';
+import {
+  isSupabaseConfigured,
+  upsertSupabaseUser,
+  updateSupabaseUserPreferences,
+  insertSupabaseProject,
+  updateSupabaseProject,
+  deleteSupabaseProject,
+  insertSupabaseTask,
+  updateSupabaseTask,
+  deleteSupabaseTask,
+  insertSupabaseSession,
+  upsertSupabaseActiveTimer,
+} from './supabase-db';
 
 /**
  * Normalized 3FN Database Schema
@@ -515,6 +528,13 @@ export async function createUser(userData: {
   };
 
   await saveDatabase(db);
+
+  if (isSupabaseConfigured()) {
+    upsertSupabaseUser(newUser, newPref).catch((err) => console.error('[Supabase sync error]', err));
+    insertSupabaseProject(defaultProject).catch((err) => console.error('[Supabase sync error]', err));
+    upsertSupabaseActiveTimer(db.activeTimers[userId]).catch((err) => console.error('[Supabase sync error]', err));
+  }
+
   return {
     ...newUser,
     focusDuration: newPref.focusDuration,
@@ -566,6 +586,11 @@ export async function updateUser(
   }
 
   await saveDatabase(db);
+
+  if (isSupabaseConfigured()) {
+    upsertSupabaseUser(updatedUser, updatedPref).catch((err) => console.error('[Supabase sync error]', err));
+  }
+
   return {
     ...updatedUser,
     focusDuration: updatedPref.focusDuration,
@@ -615,6 +640,11 @@ export async function createProject(
 
   db.projects.push(newProject);
   await saveDatabase(db);
+
+  if (isSupabaseConfigured()) {
+    insertSupabaseProject(newProject).catch((err) => console.error('[Supabase sync error]', err));
+  }
+
   return newProject;
 }
 
@@ -636,6 +666,11 @@ export async function updateProject(userId: string, projectId: string, updates: 
 
   db.projects[index] = updatedProject;
   await saveDatabase(db);
+
+  if (isSupabaseConfigured()) {
+    updateSupabaseProject(projectId, userId, updates).catch((err) => console.error('[Supabase sync error]', err));
+  }
+
   return updatedProject;
 }
 
@@ -660,6 +695,10 @@ export async function deleteProject(userId: string, projectId: string): Promise<
   });
 
   await saveDatabase(db);
+
+  if (isSupabaseConfigured()) {
+    deleteSupabaseProject(projectId, userId).catch((err) => console.error('[Supabase sync error]', err));
+  }
 }
 
 // ----------------- TASK OPERATIONS (WITH DYNAMIC NORMALIZED COUNTS) -----------------
@@ -735,10 +774,16 @@ export async function createTask(
   db.tasks.push(newTaskRaw);
   await saveDatabase(db);
 
-  return {
+  const createdTask: Task = {
     ...newTaskRaw,
     completedPomodoros: 0,
   };
+
+  if (isSupabaseConfigured()) {
+    insertSupabaseTask(createdTask).catch((err) => console.error('[Supabase sync error]', err));
+  }
+
+  return createdTask;
 }
 
 export async function updateTask(userId: string, taskId: string, updates: Partial<Task>): Promise<Task> {
@@ -776,10 +821,16 @@ export async function updateTask(userId: string, taskId: string, updates: Partia
     (s) => s.taskId === taskId && s.type === 'focus' && s.completed
   ).length;
 
-  return {
+  const result: Task = {
     ...updatedTask,
     completedPomodoros: completedCount,
   };
+
+  if (isSupabaseConfigured()) {
+    updateSupabaseTask(taskId, userId, updates).catch((err) => console.error('[Supabase sync error]', err));
+  }
+
+  return result;
 }
 
 export async function deleteTask(userId: string, taskId: string): Promise<void> {
@@ -800,6 +851,10 @@ export async function deleteTask(userId: string, taskId: string): Promise<void> 
   }
 
   await saveDatabase(db);
+
+  if (isSupabaseConfigured()) {
+    deleteSupabaseTask(taskId, userId).catch((err) => console.error('[Supabase sync error]', err));
+  }
 }
 
 // ----------------- POMODORO SESSIONS (WITH DYNAMIC JOIN RESOLUTION) -----------------
@@ -881,11 +936,17 @@ export async function recordPomodoroSession(
   const project = resolvedProjectId ? db.projects.find((p) => p.id === resolvedProjectId) : null;
   const task = sessionData.taskId ? db.tasks.find((t) => t.id === sessionData.taskId) : null;
 
-  return {
+  const result: PomodoroSession = {
     ...newSessionRaw,
     taskTitle: task?.title,
     projectName: project?.name,
   };
+
+  if (isSupabaseConfigured()) {
+    insertSupabaseSession(result).catch((err) => console.error('[Supabase sync error]', err));
+  }
+
+  return result;
 }
 
 export function getActiveTimer(userId: string): ActiveTimerState {
@@ -938,6 +999,11 @@ export async function updateActiveTimer(userId: string, stateUpdates: Partial<Ac
 
   db.activeTimers[userId] = updated;
   await saveDatabase(db);
+
+  if (isSupabaseConfigured()) {
+    upsertSupabaseActiveTimer(updated).catch((err) => console.error('[Supabase sync error]', err));
+  }
+
   return updated;
 }
 
