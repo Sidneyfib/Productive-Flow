@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createUser, getUserByEmail } from '@/lib/db';
+import { getSupabaseUserByEmail, isSupabaseConfigured } from '@/lib/supabase-db';
 import { signToken, sanitizeUser } from '@/lib/auth';
 
 export async function POST(req: NextRequest) {
@@ -44,7 +45,15 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const existingUser = getUserByEmail(trimmedEmail);
+    let existingUser = getUserByEmail(trimmedEmail);
+    if (!existingUser && isSupabaseConfigured()) {
+      try {
+        existingUser = (await getSupabaseUserByEmail(trimmedEmail)) || undefined;
+      } catch (err) {
+        console.error('Error checking Supabase email in register:', err);
+      }
+    }
+
     if (existingUser) {
       return NextResponse.json(
         { error: 'Este e-mail já está cadastrado no sistema.', code: 'EMAIL_ALREADY_EXISTS', field: 'email' },
@@ -83,3 +92,4 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+

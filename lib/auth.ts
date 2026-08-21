@@ -1,6 +1,7 @@
 import jwt from 'jsonwebtoken';
 import { NextRequest } from 'next/server';
 import { getUserById, getUserPreferences, getUserWithPreferences } from './db';
+import { getSupabaseUserWithPreferences, isSupabaseConfigured } from './supabase-db';
 import { User, UserWithPreferences } from './types';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'productive-flow-deep-work-secret-key-2026';
@@ -40,14 +41,23 @@ export function sanitizeUser(user: User | UserWithPreferences): Omit<UserWithPre
 
 export async function getAuthenticatedUser(req: NextRequest): Promise<UserWithPreferences | null> {
   // 1. Check Authorization header
-  const authHeader = req.headers.get('authorization');
+  const authHeader = req.headers.get('authorization') || req.headers.get('Authorization');
   let token: string | null = null;
 
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    token = authHeader.substring(7).trim();
+  if (authHeader) {
+    if (authHeader.toLowerCase().startsWith('bearer ')) {
+      token = authHeader.substring(7).trim();
+    } else {
+      token = authHeader.trim();
+    }
   }
 
-  // 2. Check cookies
+  // 2. Check x-access-token header
+  if (!token) {
+    token = req.headers.get('x-access-token') || null;
+  }
+
+  // 3. Check cookies
   if (!token) {
     token = req.cookies.get('flow_token')?.value || null;
   }
@@ -61,5 +71,21 @@ export async function getAuthenticatedUser(req: NextRequest): Promise<UserWithPr
     return null;
   }
 
-  return getUserWithPreferences(payload.userId);
+  const localUser = getUserWithPreferences(payload.userId);
+  if (localUser) {
+    return localUser;
+  }
+
+  if (isSupabaseConfigured()) {
+    try {
+      const supabaseUser = await getSupabaseUserWithPreferences(payload.userId);
+      if (supabaseUser) {
+        return supabaseUser;
+      }
+    } catch (err) {
+      console.error('Error fetching Supabase user in getAuthenticatedUser:', err);
+    }
+  }
+
+  return null;
 }

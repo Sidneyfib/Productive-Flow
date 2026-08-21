@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
-import { getUserByEmail } from '@/lib/db';
+import { getUserByEmail, getUserPreferences, loadDatabase, saveDatabase } from '@/lib/db';
+import { getSupabaseUserByEmail, getSupabaseUserPreferences, isSupabaseConfigured } from '@/lib/supabase-db';
 import { signToken, sanitizeUser } from '@/lib/auth';
+import { User, UserPreference } from '@/lib/types';
 
 export async function POST(req: NextRequest) {
   try {
@@ -21,7 +23,29 @@ export async function POST(req: NextRequest) {
     }
 
     const trimmedEmail = String(email).trim().toLowerCase();
-    const user = getUserByEmail(trimmedEmail);
+    let user: User | undefined = getUserByEmail(trimmedEmail);
+
+    if (!user && isSupabaseConfigured()) {
+      try {
+        const supabaseUser = await getSupabaseUserByEmail(trimmedEmail);
+        if (supabaseUser) {
+          user = supabaseUser;
+          // Sync into local DB cache
+          const db = loadDatabase();
+          if (!db.users.some((u) => u.id === user!.id)) {
+            db.users.push(user!);
+            const supabasePrefs = await getSupabaseUserPreferences(user!.id);
+            if (supabasePrefs) {
+              db.userPreferences.push(supabasePrefs);
+            }
+            await saveDatabase(db);
+          }
+        }
+      } catch (supabaseErr) {
+        console.error('Error fetching Supabase user on login:', supabaseErr);
+      }
+    }
+
     if (!user) {
       return NextResponse.json(
         { 
@@ -73,3 +97,4 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+

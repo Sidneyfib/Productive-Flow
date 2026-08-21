@@ -73,7 +73,7 @@ interface FlowContextType {
 const FlowContext = createContext<FlowContextType | undefined>(undefined);
 
 export function FlowProvider({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const [currentTab, setCurrentTab] = useState<NavTab>('dashboard');
   const [projects, setProjects] = useState<Project[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -82,6 +82,26 @@ export function FlowProvider({ children }: { children: React.ReactNode }) {
   const [isLoadingData, setIsLoadingData] = useState(true);
   const [isOnline, setIsOnline] = useState(true);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
+
+  // Authenticated fetch helper
+  const authFetch = useCallback(
+    async (url: string, options: RequestInit = {}) => {
+      const currentToken =
+        token || (typeof window !== 'undefined' ? localStorage.getItem('flow_token') : null);
+      const headers: Record<string, string> = {
+        ...(options.headers as Record<string, string> || {}),
+      };
+      if (currentToken) {
+        headers['Authorization'] = `Bearer ${currentToken}`;
+      }
+      return fetch(url, {
+        ...options,
+        credentials: 'include',
+        headers,
+      });
+    },
+    [token]
+  );
 
   // Modals
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
@@ -125,7 +145,7 @@ export function FlowProvider({ children }: { children: React.ReactNode }) {
     }
 
     try {
-      const res = await fetch('/api/sync');
+      const res = await authFetch('/api/sync');
       if (res.ok) {
         const data = await res.json();
         setProjects(data.projects || []);
@@ -141,7 +161,7 @@ export function FlowProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setIsLoadingData(false);
     }
-  }, [user]);
+  }, [user, authFetch]);
 
   // Online / Offline listener
   useEffect(() => {
@@ -174,7 +194,7 @@ export function FlowProvider({ children }: { children: React.ReactNode }) {
         return;
       }
       try {
-        const res = await fetch('/api/sync');
+        const res = await authFetch('/api/sync');
         if (res.ok && isSubscribed) {
           const data = await res.json();
           setProjects(data.projects || []);
@@ -197,7 +217,7 @@ export function FlowProvider({ children }: { children: React.ReactNode }) {
     return () => {
       isSubscribed = false;
     };
-  }, [user]);
+  }, [user, authFetch]);
 
   // Sync Timer state to backend with debounce
   const syncTimerToBackend = useCallback((timerState: ActiveTimerState) => {
@@ -206,7 +226,7 @@ export function FlowProvider({ children }: { children: React.ReactNode }) {
     }
     syncTimerDebounceRef.current = setTimeout(async () => {
       try {
-        await fetch('/api/pomodoro/active', {
+        await authFetch('/api/pomodoro/active', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(timerState),
@@ -215,7 +235,7 @@ export function FlowProvider({ children }: { children: React.ReactNode }) {
         console.error('Failed to persist timer state:', err);
       }
     }, 500);
-  }, []);
+  }, [authFetch]);
 
   // Request browser notification permission once
   useEffect(() => {
@@ -251,7 +271,7 @@ export function FlowProvider({ children }: { children: React.ReactNode }) {
 
       // Record completed session in DB
       try {
-        const res = await fetch('/api/pomodoro/session', {
+        const res = await authFetch('/api/pomodoro/session', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -484,7 +504,7 @@ export function FlowProvider({ children }: { children: React.ReactNode }) {
 
   // PROJECT ACTIONS
   const addProject = async (data: Partial<Project>): Promise<Project> => {
-    const res = await fetch('/api/projects', {
+    const res = await authFetch('/api/projects', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -499,7 +519,7 @@ export function FlowProvider({ children }: { children: React.ReactNode }) {
   };
 
   const updateProjectAction = async (id: string, updates: Partial<Project>): Promise<Project> => {
-    const res = await fetch(`/api/projects/${id}`, {
+    const res = await authFetch(`/api/projects/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(updates),
@@ -514,7 +534,7 @@ export function FlowProvider({ children }: { children: React.ReactNode }) {
   };
 
   const deleteProjectAction = async (id: string) => {
-    const res = await fetch(`/api/projects/${id}`, { method: 'DELETE' });
+    const res = await authFetch(`/api/projects/${id}`, { method: 'DELETE' });
     if (!res.ok) {
       const err = await res.json();
       throw new Error(err.error || 'Erro ao excluir projeto');
@@ -527,7 +547,7 @@ export function FlowProvider({ children }: { children: React.ReactNode }) {
 
   // TASK ACTIONS
   const addTask = async (data: Partial<Task>): Promise<Task> => {
-    const res = await fetch('/api/tasks', {
+    const res = await authFetch('/api/tasks', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -542,7 +562,7 @@ export function FlowProvider({ children }: { children: React.ReactNode }) {
   };
 
   const updateTaskAction = async (id: string, updates: Partial<Task>): Promise<Task> => {
-    const res = await fetch(`/api/tasks/${id}`, {
+    const res = await authFetch(`/api/tasks/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(updates),
@@ -583,7 +603,7 @@ export function FlowProvider({ children }: { children: React.ReactNode }) {
     );
 
     try {
-      const res = await fetch(`/api/tasks/${taskId}`, {
+      const res = await authFetch(`/api/tasks/${taskId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: nextStatus }),
@@ -601,7 +621,7 @@ export function FlowProvider({ children }: { children: React.ReactNode }) {
   };
 
   const deleteTaskAction = async (id: string) => {
-    const res = await fetch(`/api/tasks/${id}`, { method: 'DELETE' });
+    const res = await authFetch(`/api/tasks/${id}`, { method: 'DELETE' });
     if (!res.ok) {
       const err = await res.json();
       throw new Error(err.error || 'Erro ao excluir tarefa');
@@ -616,7 +636,7 @@ export function FlowProvider({ children }: { children: React.ReactNode }) {
     if (notes && sessions.length > 0) {
       const latest = sessions[0];
       try {
-        await fetch('/api/pomodoro/session', {
+        await authFetch('/api/pomodoro/session', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
